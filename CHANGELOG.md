@@ -4,6 +4,11 @@ This changelog is based on the format from [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Fixed
+
+- (prost) `prost_reflect` now compiles for nested messages ([#141], fixes [#139])
+  - Thanks to @filippobrizzi!
+
 ## [2025-11-19]
 
 - `protoc-gen-prost` 0.5.0
@@ -34,6 +39,8 @@ This changelog is based on the format from [Keep a Changelog](https://keepachang
 [#110]: https://github.com/neoeinstein/protoc-gen-prost/pull/110
 [#123]: https://github.com/neoeinstein/protoc-gen-prost/pull/123
 [#124]: https://github.com/neoeinstein/protoc-gen-prost/pull/124
+[#139]: https://github.com/neoeinstein/protoc-gen-prost/issues/139
+[#141]: https://github.com/neoeinstein/protoc-gen-prost/pull/141
 
 ## [2024-08-22]
 

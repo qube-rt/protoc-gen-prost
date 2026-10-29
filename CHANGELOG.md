@@ -4,6 +4,11 @@ This changelog is based on the format from [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+### Added
+
+- (prost) Added `prost_reflect=linked`, where each module embeds only its own file descriptors
+  and registers them in prost-reflect's global pool after those of the crates it imports from
+
 ### Fixed
 
 - (prost) `prost_reflect` now compiles for nested messages ([#141], fixes [#139])

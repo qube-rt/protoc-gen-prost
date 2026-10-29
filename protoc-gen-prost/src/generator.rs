@@ -9,8 +9,12 @@ use crate::ModuleRequestSet;
 
 mod core;
 mod file_descriptor_set;
+mod registration;
 
-pub(crate) use self::{core::CoreProstGenerator, file_descriptor_set::FileDescriptorSetGenerator};
+pub(crate) use self::{
+    core::CoreProstGenerator, file_descriptor_set::FileDescriptorSetGenerator,
+    registration::RegistrationGenerator,
+};
 
 /// A code generation result
 pub type Result = std::result::Result<Vec<File>, Error>;

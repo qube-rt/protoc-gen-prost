@@ -15,7 +15,7 @@ use prost_types::{
     DescriptorProto, FileDescriptorProto,
 };
 
-use self::generator::{CoreProstGenerator, FileDescriptorSetGenerator};
+use self::generator::{CoreProstGenerator, FileDescriptorSetGenerator, RegistrationGenerator};
 
 mod generator;
 
@@ -25,6 +25,17 @@ pub use self::generator::{Error, Generator, GeneratorResultExt, Result};
 pub fn execute(raw_request: &[u8]) -> generator::Result {
     let request = CodeGeneratorRequest::decode(raw_request)?;
     let params = request.parameter().parse::<Parameters>()?;
+
+    let registration_generator =
+        if params.file_descriptor_set && params.prost_reflect == Some(ProstReflect::Linked) {
+            Some(RegistrationGenerator::new(
+                &request,
+                &RawProtos::decode(raw_request)?,
+                &params.prost.extern_path,
+            ))
+        } else {
+            None
+        };
 
     let module_request_set = ModuleRequestSet::new(
         request.file_to_generate,
@@ -57,20 +68,24 @@ pub fn execute(raw_request: &[u8]) -> generator::Result {
         }
 
         for (full_name, nesting_depth) in &messages {
-            // file_descriptor_set_generator declares FILE_DESCRIPTOR_SET in the package-level
-            // module. A message nested `nesting_depth` levels deep lives in that many
-            // `pub mod <parent>` wrappers below it, so the reference needs a matching number of
-            // `super::` segments -- an unqualified name only resolves for top-level messages.
-            let file_descriptor_set_path =
-                format!("{}FILE_DESCRIPTOR_SET", "super::".repeat(*nesting_depth));
+            // file_descriptor_set_generator declares FILE_DESCRIPTOR_SET, and registration_generator
+            // `__descriptor_pool()`, in the package-level module. A message nested `nesting_depth`
+            // levels deep lives in that many `pub mod <parent>` wrappers below it, so the reference
+            // needs a matching number of `super::` segments -- an unqualified name only resolves
+            // for top-level messages.
+            let package_module = "super::".repeat(*nesting_depth);
             config
                 .type_attribute(full_name, "#[derive(::prost_reflect::ReflectMessage)]")
                 .type_attribute(
                     full_name,
-                    format!(
-                        r#"#[prost_reflect(file_descriptor_set_bytes = "{}")]"#,
-                        file_descriptor_set_path
-                    ),
+                    match params.prost_reflect {
+                        Some(ProstReflect::Embedded) => format!(
+                            r#"#[prost_reflect(file_descriptor_set_bytes = "{package_module}FILE_DESCRIPTOR_SET")]"#
+                        ),
+                        _ => format!(
+                            r#"#[prost_reflect(descriptor_pool = "{package_module}__descriptor_pool()")]"#
+                        ),
+                    },
                 )
                 .type_attribute(
                     full_name,
@@ -81,6 +96,7 @@ pub fn execute(raw_request: &[u8]) -> generator::Result {
 
     let files = CoreProstGenerator::new(config)
         .chain(file_descriptor_set_generator)
+        .chain(registration_generator)
         .generate(&module_request_set)?;
 
     Ok(files)
@@ -306,6 +322,9 @@ struct Parameters {
 enum ProstReflect {
     /// Each module embeds the descriptors of its files and of all the files they import
     Embedded,
+    /// Each module embeds the descriptors of its files only, and registers them in prost-reflect's
+    /// global pool after the modules the `extern_path`s map the imported files to
+    Linked,
 }
 
 /// Parameters used to configure the underlying Prost generator
@@ -627,6 +646,10 @@ impl str::FromStr for Parameters {
                     } => ret_val.prost_reflect = Some(ProstReflect::Embedded),
                     Param::Value {
                         param: "prost_reflect",
+                        value: "linked",
+                    } => ret_val.prost_reflect = Some(ProstReflect::Linked),
+                    Param::Value {
+                        param: "prost_reflect",
                         value: "false",
                     } => (),
                     _ => return Err(InvalidParameter::from(param)),
@@ -673,6 +696,8 @@ struct RawProtos {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
 
     #[test]
@@ -812,5 +837,149 @@ mod tests {
             "doubly-nested message should reference super::super::FILE_DESCRIPTOR_SET:\n{}",
             example_rs
         );
+    }
+
+    fn file(
+        name: &str,
+        package: &str,
+        messages: &[&str],
+        dependencies: &[&str],
+    ) -> FileDescriptorProto {
+        FileDescriptorProto {
+            name: Some(name.to_owned()),
+            package: Some(package.to_owned()),
+            dependency: dependencies.iter().map(|&name| name.to_owned()).collect(),
+            message_type: messages
+                .iter()
+                .map(|&name| DescriptorProto {
+                    name: Some(name.to_owned()),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    /// The code generated for a1.proto and a2.proto (package `a`), b.proto (package `b`) and their
+    /// imports with `parameter`, by output file name.
+    fn generate_linked(parameter: &str) -> HashMap<String, String> {
+        use prost_types::compiler::CodeGeneratorRequest;
+
+        let mut a1 = file(
+            "a1.proto",
+            "a",
+            &["A1"],
+            &["ext.proto", "opts.proto", "google/protobuf/timestamp.proto"],
+        );
+        a1.message_type[0].nested_type.push(DescriptorProto {
+            name: Some("Inner".to_owned()),
+            ..Default::default()
+        });
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec![
+                "a1.proto".to_owned(),
+                "b.proto".to_owned(),
+                "a2.proto".to_owned(),
+            ],
+            parameter: Some(parameter.to_owned()),
+            proto_file: vec![
+                file(
+                    "google/protobuf/timestamp.proto",
+                    "google.protobuf",
+                    &["Timestamp"],
+                    &[],
+                ),
+                file("ext.proto", "ext", &["E"], &[]),
+                // Only extensions, which no extern_path maps.
+                file("opts.proto", "opts", &[], &[]),
+                a1,
+                // Packages `a` and `b` import each other.
+                file("b.proto", "b", &["B"], &["a1.proto"]),
+                file("a2.proto", "a", &["A2"], &["b.proto"]),
+            ],
+            ..Default::default()
+        };
+        let mut contents = HashMap::<String, String>::new();
+        for file in execute(&request.encode_to_vec()).expect("code generation failed") {
+            contents
+                .entry(file.name.unwrap_or_default())
+                .or_default()
+                .push_str(&file.content.unwrap_or_default());
+        }
+        contents
+    }
+
+    #[test]
+    fn prost_reflect_linked_registers_generated_and_imported_files() {
+        let contents = generate_linked(
+            "file_descriptor_set,prost_reflect=linked,extern_path=.ext=::ext_crate::ext",
+        );
+        let a = &contents["a/a.rs"];
+        let b = &contents["b/b.rs"];
+
+        assert!(
+            a.contains(r#"#[prost_reflect(descriptor_pool = "__descriptor_pool()")]"#),
+            "top-level messages should read their module's pool:\n{a}"
+        );
+        assert!(
+            a.contains(r#"#[prost_reflect(descriptor_pool = "super::__descriptor_pool()")]"#),
+            "nested messages should read their package's module's pool:\n{a}"
+        );
+        for module in [a, b] {
+            assert!(
+                module.contains("::ext_crate::ext::register_descriptors();"),
+                "the module the extern_path maps should register first:\n{module}"
+            );
+            assert!(
+                !module.contains("google"),
+                "the well-known types are in the pool from the start:\n{module}"
+            );
+        }
+        assert!(
+            a.contains(
+                "[FILE_DESCRIPTOR_SET, super::b::FILE_DESCRIPTOR_SET, \
+                 IMPORTED_FILE_DESCRIPTOR_SET]"
+            ),
+            "every generated module's files should be added together:\n{a}"
+        );
+        assert!(
+            b.contains(
+                "[super::a::FILE_DESCRIPTOR_SET, FILE_DESCRIPTOR_SET, \
+                 super::a::IMPORTED_FILE_DESCRIPTOR_SET]"
+            ),
+            "every generated module's files should be added together:\n{b}"
+        );
+        assert!(
+            a.contains("const IMPORTED_FILE_DESCRIPTOR_SET")
+                && !b.contains("const IMPORTED_FILE_DESCRIPTOR_SET"),
+            "the unmapped imports should be embedded once"
+        );
+        let bytes: Vec<u8> = a
+            .split("const IMPORTED_FILE_DESCRIPTOR_SET: &[u8] = &[")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .expect("IMPORTED_FILE_DESCRIPTOR_SET bytes")
+            .split(',')
+            .map(|byte| byte.trim().parse().unwrap())
+            .collect();
+        let imported = prost_types::FileDescriptorSet::decode(bytes.as_slice()).unwrap();
+        assert_eq!(
+            imported
+                .file
+                .iter()
+                .map(|file| file.name())
+                .collect::<Vec<_>>(),
+            ["opts.proto"],
+            "only the unmapped import should be embedded, as a FileDescriptorSet"
+        );
+    }
+
+    /// As rules_rust passes them: an extern_path per type.
+    #[test]
+    fn prost_reflect_linked_resolves_extern_paths_of_types() {
+        let contents = generate_linked(
+            "file_descriptor_set,prost_reflect=linked,extern_path=.ext.E=::ext_crate::ext::E",
+        );
+        assert!(contents["a/a.rs"].contains("::ext_crate::ext::register_descriptors();"));
     }
 }

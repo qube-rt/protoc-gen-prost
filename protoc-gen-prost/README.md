@@ -62,6 +62,21 @@ In addition, the following options can also be specified:
   depends on `file_descriptor_set`, and when enabled, the generated `FileDescriptorSet`
   *will* include all the dependent protobuf files in addition to the module being generated,
   which required for prost_reflect descriptor to work.
+* `prost_reflect=linked`: Like `prost_reflect`, but the `FileDescriptorSet` of
+  each module only includes the files of that module, as with
+  `file_descriptor_set` alone. Each module also gets a `register_descriptors()`,
+  which adds the descriptors of all the files generated together to
+  prost-reflect's global pool, once, after calling the `register_descriptors()`
+  of the modules that the `extern_path`s map the imported files to. The
+  generated `ReflectMessage` implementations call it before reading the pool.
+  Files already in the pool are skipped, as are the well-known types, which it
+  starts with. An imported file that no `extern_path` maps, as it defines only
+  extensions, is added with the generated files. The descriptors are added as
+  protoc sent them, so the extensions set in their options, such as
+  `google.api.http`, are kept. This keeps each descriptor in the crate that
+  generates it, rather than copied into every module importing it, but every
+  crate an `extern_path` points to must have been generated with
+  `prost_reflect=linked` too.
 
 A note on parameter values:
 

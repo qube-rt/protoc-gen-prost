@@ -96,9 +96,9 @@ impl FileDescriptorSetGenerator {
 
 /// Wire-compatible FileDescriptorSet that doesn't require fully-decoded file descriptors
 #[derive(Clone, PartialEq, ::prost::Message)]
-struct RawProtosSet {
+pub(crate) struct RawProtosSet {
     #[prost(bytes = "vec", repeated, tag = "1")]
-    pub file: Vec<Vec<u8>>,
+    pub(crate) file: Vec<Vec<u8>>,
 }
 
 fn append_file_descriptor_set_bytes(

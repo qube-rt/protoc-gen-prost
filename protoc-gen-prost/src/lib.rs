@@ -35,7 +35,7 @@ pub fn execute(raw_request: &[u8]) -> generator::Result {
     )?;
 
     let file_descriptor_set_generator = if params.file_descriptor_set {
-        Some(if params.prost_reflect {
+        Some(if params.prost_reflect == Some(ProstReflect::Embedded) {
             // When using prost-reflect, we need to include all dependencies
             FileDescriptorSetGenerator::with_all_dependencies()
         } else {
@@ -48,7 +48,7 @@ pub fn execute(raw_request: &[u8]) -> generator::Result {
 
     let mut config = params.prost.to_prost_config();
 
-    if params.file_descriptor_set && params.prost_reflect {
+    if params.file_descriptor_set && params.prost_reflect.is_some() {
         let mut messages = Vec::new();
         for (_, request) in module_request_set.requests() {
             for file in request.files() {
@@ -297,8 +297,15 @@ struct Parameters {
     file_descriptor_set: bool,
 
     /// Whether to generate prost-reflect trait implementations for the generated
-    /// rust types using prost-reflect-build
-    prost_reflect: bool,
+    /// rust types, and how they find their descriptors
+    prost_reflect: Option<ProstReflect>,
+}
+
+/// How the generated `ReflectMessage` implementations find their descriptors
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProstReflect {
+    /// Each module embeds the descriptors of its files and of all the files they import
+    Embedded,
 }
 
 /// Parameters used to configure the underlying Prost generator
@@ -617,7 +624,7 @@ impl str::FromStr for Parameters {
                     | Param::Value {
                         param: "prost_reflect",
                         value: "true",
-                    } => ret_val.prost_reflect = true,
+                    } => ret_val.prost_reflect = Some(ProstReflect::Embedded),
                     Param::Value {
                         param: "prost_reflect",
                         value: "false",

@@ -1,0 +1,10 @@
+[package]
+name = "linked-reflection-base"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+prost.workspace = true
+prost-reflect.workspace = true
+prost-types.workspace = true

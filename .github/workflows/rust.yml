@@ -160,3 +160,34 @@ jobs:
           cargo build --locked
           cargo test --locked
         working-directory: example/wkt-reflection-with-buf
+
+  linked-reflection-with-buf:
+    name: Linked Reflection with Buf Example
+    needs: binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: binary-release
+          path: bin
+      - name: Mark as executable
+        run: chmod +x bin/*
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Install protobuf compiler and protobuf resources
+        run: sudo apt install protobuf-compiler libprotobuf-dev
+      - name: Generate example
+        run: |
+          export PATH=$GITHUB_WORKSPACE/bin:$PATH
+          (cd base && buf generate -v --debug)
+          (cd derived && buf generate -v --debug)
+        working-directory: example/linked-reflection-with-buf
+      - name: Test example
+        run: |
+          export CARGO_TARGET_DIR=$GITHUB_WORKSPACE/target
+          cargo test --locked
+        working-directory: example/linked-reflection-with-buf

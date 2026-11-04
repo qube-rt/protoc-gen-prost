@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package example.base;
+
+import "example/options/options.proto";
+import "google/protobuf/timestamp.proto";
+
+message Base {
+  message Inner {
+    int32 count = 1;
+  }
+
+  string name = 1 [(example.options.label) = "Name"];
+  google.protobuf.Timestamp at = 2;
+  Inner inner = 3;
+}

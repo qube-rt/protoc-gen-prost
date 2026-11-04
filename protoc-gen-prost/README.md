@@ -76,7 +76,8 @@ In addition, the following options can also be specified:
   `google.api.http`, are kept. This keeps each descriptor in the crate that
   generates it, rather than copied into every module importing it, but every
   crate an `extern_path` points to must have been generated with
-  `prost_reflect=linked` too.
+  `prost_reflect=linked` too. See
+  [`example/linked-reflection-with-buf`](../example/linked-reflection-with-buf).
 
 A note on parameter values:
 

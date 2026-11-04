@@ -1,0 +1,11 @@
+[package]
+name = "linked-reflection-derived"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+linked-reflection-base = { path = "../base" }
+prost.workspace = true
+prost-reflect.workspace = true
+prost-types.workspace = true

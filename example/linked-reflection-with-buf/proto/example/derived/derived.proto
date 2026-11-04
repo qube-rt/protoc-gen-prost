@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package example.derived;
+
+import "example/base/base.proto";
+
+message Derived {
+  example.base.Base base = 1;
+  map<string, example.base.Base.Inner> by_key = 2;
+}

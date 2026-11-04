@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use proc_macro2::TokenStream;
 use prost_build::{Method, Module, Service};
 use prost_types::{
@@ -12,6 +14,7 @@ use crate::{resolver::Resolver, util};
 
 pub(crate) struct TonicGenerator {
     pub(crate) resolver: Resolver,
+    pub(crate) files_to_generate: HashSet<String>,
     pub(crate) generate_server: bool,
     pub(crate) generate_client: bool,
     pub(crate) generate_transport: bool,
@@ -134,6 +137,7 @@ impl TonicGenerator {
 
         let services = request
             .files()
+            .filter(|file| self.files_to_generate.contains(file.name()))
             .flat_map(|file| {
                 file.service
                     .iter()

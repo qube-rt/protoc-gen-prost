@@ -8,6 +8,9 @@ This changelog is based on the format from [Keep a Changelog](https://keepachang
 
 - (prost) `prost_reflect` now compiles for nested messages ([#141], fixes [#139])
   - Thanks to @filippobrizzi!
+- (tonic) Only the services of the files to generate are generated, not those of the files they
+  import ([#143])
+  - Thanks to @fivetran-auslacroix!
 
 ## [2025-11-19]
 
@@ -41,6 +44,7 @@ This changelog is based on the format from [Keep a Changelog](https://keepachang
 [#124]: https://github.com/neoeinstein/protoc-gen-prost/pull/124
 [#139]: https://github.com/neoeinstein/protoc-gen-prost/issues/139
 [#141]: https://github.com/neoeinstein/protoc-gen-prost/pull/141
+[#143]: https://github.com/neoeinstein/protoc-gen-prost/issues/143
 
 ## [2024-08-22]
 

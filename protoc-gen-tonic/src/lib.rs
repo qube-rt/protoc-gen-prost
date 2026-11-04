@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use std::str;
+use std::{collections::HashSet, str};
 
 use prost::Message;
 use prost_types::compiler::CodeGeneratorRequest;
@@ -18,6 +18,8 @@ pub fn execute(raw_request: &[u8]) -> protoc_gen_prost::Result {
     let request = CodeGeneratorRequest::decode(raw_request)?;
     let params = request.parameter().parse::<Parameters>()?;
 
+    let files_to_generate: HashSet<_> = request.file_to_generate.iter().cloned().collect();
+
     let module_request_set = ModuleRequestSet::new(
         request.file_to_generate,
         request.proto_file,
@@ -29,6 +31,7 @@ pub fn execute(raw_request: &[u8]) -> protoc_gen_prost::Result {
     let resolver = Resolver::new(params.extern_path, params.compile_well_known_types);
     let mut generator = TonicGenerator {
         resolver,
+        files_to_generate,
         generate_server: !params.no_server,
         generate_client: !params.no_client,
         generate_transport: !params.no_transport,
@@ -185,5 +188,90 @@ impl str::FromStr for Parameters {
         }
 
         Ok(ret_val)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use prost_types::{
+        DescriptorProto, FileDescriptorProto, MethodDescriptorProto, ServiceDescriptorProto,
+    };
+
+    use super::*;
+
+    /// A file of `package` defining `service`, whose `Call` method takes and returns a
+    /// `<service>Request` message of the same file.
+    fn service_file(
+        name: &str,
+        package: &str,
+        service: &str,
+        dependency: &[&str],
+    ) -> FileDescriptorProto {
+        let request = format!("{service}Request");
+        FileDescriptorProto {
+            name: Some(name.to_owned()),
+            package: Some(package.to_owned()),
+            dependency: dependency.iter().map(|&d| d.to_owned()).collect(),
+            message_type: vec![DescriptorProto {
+                name: Some(request.clone()),
+                ..Default::default()
+            }],
+            service: vec![ServiceDescriptorProto {
+                name: Some(service.to_owned()),
+                method: vec![MethodDescriptorProto {
+                    name: Some("Call".to_owned()),
+                    input_type: Some(format!(".{package}.{request}")),
+                    output_type: Some(format!(".{package}.{request}")),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// The services of the files imported by the files to generate, from their package or another,
+    /// are not generated.
+    #[test]
+    fn generates_the_services_of_the_files_to_generate_only() {
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["target.proto".to_owned()],
+            parameter: Some("no_include".to_owned()),
+            proto_file: vec![
+                service_file("other.proto", "other", "OtherService", &[]),
+                service_file(
+                    "imported.proto",
+                    "example",
+                    "ImportedService",
+                    &["other.proto"],
+                ),
+                service_file(
+                    "target.proto",
+                    "example",
+                    "TargetService",
+                    &["imported.proto"],
+                ),
+            ],
+            ..Default::default()
+        };
+
+        let files = execute(&request.encode_to_vec()).expect("code generation failed");
+
+        let names: Vec<_> = files
+            .iter()
+            .filter_map(|file| file.name.as_deref())
+            .collect();
+        assert_eq!(names, ["example/example.tonic.rs"]);
+        let content = files[0].content.as_deref().unwrap_or_default();
+        assert!(
+            content.contains("pub mod target_service_client"),
+            "{content}"
+        );
+        assert!(
+            content.contains("pub mod target_service_server"),
+            "{content}"
+        );
+        assert!(!content.contains("imported_service"), "{content}");
+        assert!(!content.contains("other_service"), "{content}");
     }
 }

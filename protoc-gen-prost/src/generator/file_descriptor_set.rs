@@ -9,14 +9,18 @@ pub struct FileDescriptorSetGenerator {
     /// When true, the generated FileDescriptorSet will include all imported proto files
     /// from all modules, which is required for prost-reflect to work correctly.
     include_all_dependencies: bool,
+    /// Whether to include only the module's files that are in `file_to_generate`, rather than all
+    /// its files in the request
+    generated_files_only: bool,
 }
 
 impl FileDescriptorSetGenerator {
     /// Creates a new FileDescriptorSetGenerator that includes only the proto files
-    /// in each module (not their dependencies)
-    pub fn new() -> Self {
+    /// in each module (not their dependencies), or only those that are generated
+    pub fn new(generated_files_only: bool) -> Self {
         Self {
             include_all_dependencies: false,
+            generated_files_only,
         }
     }
 
@@ -25,6 +29,7 @@ impl FileDescriptorSetGenerator {
     pub fn with_all_dependencies() -> Self {
         Self {
             include_all_dependencies: true,
+            generated_files_only: false,
         }
     }
 }
@@ -37,7 +42,7 @@ impl Generator for FileDescriptorSetGenerator {
                 if self.include_all_dependencies {
                     Self::generate_all_dependent(request, module_request_set)
                 } else {
-                    Self::generate_one(request)
+                    Self::generate_one(request, self.generated_files_only)
                 }
             })
             .collect();
@@ -48,7 +53,7 @@ impl Generator for FileDescriptorSetGenerator {
 
 impl FileDescriptorSetGenerator {
     /// Generates a FileDescriptorSet containing only the proto files in the current module
-    fn generate_one(request: &ModuleRequest) -> Option<File> {
+    fn generate_one(request: &ModuleRequest, generated_files_only: bool) -> Option<File> {
         request.append_to_file(|buffer| {
             // This cannot be done with another file and `include_bytes!` because the
             // contract for a file's contents requires that they be valid UTF-8.
@@ -57,7 +62,12 @@ impl FileDescriptorSetGenerator {
             append_file_descriptor_set_bytes(
                 request.proto_package_name(),
                 &RawProtosSet {
-                    file: request.raw_files().map(|b| b.to_owned()).collect(),
+                    file: request
+                        .raw_files()
+                        .zip(request.files_to_generate())
+                        .filter(|(_, to_generate)| *to_generate || !generated_files_only)
+                        .map(|(raw, _)| raw.to_owned())
+                        .collect(),
                 },
                 buffer,
             );

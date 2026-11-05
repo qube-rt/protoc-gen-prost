@@ -57,6 +57,15 @@ In addition, the following options can also be specified:
   structure will be flattened, with all generated files placed directly
   into the specified output directory. By default, the output directory
   structure mirrors the input protobuf file paths.
+* `generate_files_only(=<boolean>)`: Generates the files to generate alone,
+  rather than every file of their packages in the request. By default, the
+  imported files of the package of a file to generate are generated with it,
+  as when a single run generates whole packages. When a package spans several
+  runs, as when each `proto_library` is a crate of its own, those files would
+  be generated again in each crate importing them. With this option, they are
+  not generated, nor in `FILE_DESCRIPTOR_SET`, and the generated code refers to
+  their types through the `extern_path`s, which must map the types of the
+  files that the files to generate import.
 * `prost_reflect`: When specified together with `file_descriptor_set`, generate
   implementations of [prost_reflect::ReflectMessage](https://docs.rs/prost-reflect/latest/prost_reflect/trait.ReflectMessage.html) trait for the generated rust struct. Note that this option
   depends on `file_descriptor_set`, and when enabled, the generated `FileDescriptorSet`

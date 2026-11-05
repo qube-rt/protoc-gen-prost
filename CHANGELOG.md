@@ -8,6 +8,8 @@ This changelog is based on the format from [Keep a Changelog](https://keepachang
 
 - (prost) Added `prost_reflect=linked`, where each module embeds only its own file descriptors
   and registers them in prost-reflect's global pool after those of the crates it imports from
+- (prost) Added `generate_files_only`, which generates the files to generate alone rather than
+  every file of their packages in the request, for packages spread over several crates
 
 ### Fixed
 

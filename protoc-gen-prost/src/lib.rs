@@ -51,7 +51,7 @@ pub fn execute(raw_request: &[u8]) -> generator::Result {
             FileDescriptorSetGenerator::with_all_dependencies()
         } else {
             // Normal mode: only include files from each module
-            FileDescriptorSetGenerator::new()
+            FileDescriptorSetGenerator::new(params.generate_files_only)
         })
     } else {
         None
@@ -59,10 +59,44 @@ pub fn execute(raw_request: &[u8]) -> generator::Result {
 
     let mut config = params.prost.to_prost_config();
 
+    if params.generate_files_only {
+        // Prost generates every file it is given. It still needs the other files of the generated
+        // packages, to derive Eq or Copy from the messages they define, so their types are mapped
+        // to a path that nothing references instead, which prost does not generate. A generated
+        // file can only refer to them through an extern_path of the caller's, which this keeps.
+        for (_, request) in module_request_set.requests() {
+            if request.output_filename().is_none() {
+                continue;
+            }
+            for (file, to_generate) in request.files().zip(request.files_to_generate()) {
+                if to_generate {
+                    continue;
+                }
+                let types = file
+                    .message_type
+                    .iter()
+                    .map(|message| message.name())
+                    .chain(file.enum_type.iter().map(|enumeration| enumeration.name()));
+                for name in types {
+                    let proto_path = format!(".{}.{name}", file.package());
+                    let mapped = params.prost.extern_path.iter().any(|(path, _)| {
+                        proto_path == *path || proto_path.starts_with(&format!("{path}."))
+                    });
+                    if !mapped {
+                        config.extern_path(proto_path, format!("::not_generated::{name}"));
+                    }
+                }
+            }
+        }
+    }
+
     if params.file_descriptor_set && params.prost_reflect.is_some() {
         let mut messages = Vec::new();
         for (_, request) in module_request_set.requests() {
-            for file in request.files() {
+            for (file, to_generate) in request.files().zip(request.files_to_generate()) {
+                if params.generate_files_only && !to_generate {
+                    continue;
+                }
                 collect_message_names(file.package(), &file.message_type, 0, &mut messages);
             }
         }
@@ -168,7 +202,8 @@ impl ModuleRequestSet {
                     ModuleRequest::new(proto.package().to_owned(), module, flat_output_dir)
                 });
 
-                if entry.output_filename().is_none() && input_protos.contains(proto_filename) {
+                let to_generate = input_protos.contains(proto_filename);
+                if entry.output_filename().is_none() && to_generate {
                     let filename = match proto.package() {
                         "" => default_package_filename.to_owned(),
                         package => format!("{package}.rs"),
@@ -176,7 +211,7 @@ impl ModuleRequestSet {
                     entry.with_output_filename(filename);
                 }
 
-                entry.push_file_descriptor_proto(proto, raw);
+                entry.push_file_descriptor_proto(proto, raw, to_generate);
                 acc
             },
         );
@@ -207,6 +242,8 @@ pub struct ModuleRequest {
     output_filename: Option<String>,
     files: Vec<FileDescriptorProto>,
     raw: Vec<Vec<u8>>,
+    /// Whether each of `files` is in the request's `file_to_generate`
+    to_generate: Vec<bool>,
 }
 
 impl ModuleRequest {
@@ -218,6 +255,7 @@ impl ModuleRequest {
             output_filename: None,
             files: Vec::new(),
             raw: Vec::new(),
+            to_generate: Vec::new(),
         }
     }
 
@@ -225,9 +263,15 @@ impl ModuleRequest {
         self.output_filename = Some(filename);
     }
 
-    fn push_file_descriptor_proto(&mut self, encoded: FileDescriptorProto, raw: Vec<u8>) {
+    fn push_file_descriptor_proto(
+        &mut self,
+        encoded: FileDescriptorProto,
+        raw: Vec<u8>,
+        to_generate: bool,
+    ) {
         self.files.push(encoded);
         self.raw.push(raw);
+        self.to_generate.push(to_generate);
     }
 
     /// The protobuf package name for this module
@@ -266,6 +310,12 @@ impl ModuleRequest {
     /// An iterator of the encoded [`FileDescriptorProto`]s from [`files()`][Self::files()]
     pub fn raw_files(&self) -> impl Iterator<Item = &[u8]> {
         self.raw.iter().map(|b| b.as_slice())
+    }
+
+    /// Whether each of the files of [`files()`][Self::files()], in the same order, is in the
+    /// request's `file_to_generate`, rather than only imported by those
+    pub fn files_to_generate(&self) -> impl Iterator<Item = bool> + '_ {
+        self.to_generate.iter().copied()
     }
 
     /// Creates a code generation file from the output
@@ -311,6 +361,10 @@ struct Parameters {
 
     /// Whether a file descriptor set has been requested in each module
     file_descriptor_set: bool,
+
+    /// Whether to generate the files of `file_to_generate` alone, rather than every file of their
+    /// packages in the request
+    generate_files_only: bool,
 
     /// Whether to generate prost-reflect trait implementations for the generated
     /// rust types, and how they find their descriptors
@@ -635,6 +689,17 @@ impl str::FromStr for Parameters {
                     } => ret_val.file_descriptor_set = true,
                     Param::Value {
                         param: "file_descriptor_set",
+                        value: "false",
+                    } => (),
+                    Param::Parameter {
+                        param: "generate_files_only",
+                    }
+                    | Param::Value {
+                        param: "generate_files_only",
+                        value: "true",
+                    } => ret_val.generate_files_only = true,
+                    Param::Value {
+                        param: "generate_files_only",
                         value: "false",
                     } => (),
                     Param::Parameter {
@@ -981,5 +1046,116 @@ mod tests {
             "file_descriptor_set,prost_reflect=linked,extern_path=.ext.E=::ext_crate::ext::E",
         );
         assert!(contents["a/a.rs"].contains("::ext_crate::ext::register_descriptors();"));
+    }
+
+    /// Package `split` spread over three files, as when each is in a crate of its own: c.proto,
+    /// generated, imports b.proto, mapped by an extern_path per type as rules_rust passes them,
+    /// which imports a.proto, which nothing maps.
+    fn generate_split(parameter: &str) -> HashMap<String, String> {
+        use prost_types::{
+            compiler::CodeGeneratorRequest,
+            field_descriptor_proto::{Label, Type},
+            FieldDescriptorProto,
+        };
+
+        let field = |name: &str, r#type: Type, type_name: Option<&str>| FieldDescriptorProto {
+            name: Some(name.to_owned()),
+            number: Some(1),
+            r#type: Some(r#type as i32),
+            type_name: type_name.map(str::to_owned),
+            label: Some(Label::Optional as i32),
+            ..Default::default()
+        };
+        let mut a = file("a.proto", "split", &["A"], &[]);
+        a.message_type[0].field = vec![field("value", Type::Float, None)];
+        let mut b = file("b.proto", "split", &["B"], &["a.proto"]);
+        b.message_type[0].field = vec![field("a", Type::Message, Some(".split.A"))];
+        let mut c = file("c.proto", "split", &["C"], &["b.proto"]);
+        c.message_type[0].field = vec![field("b", Type::Message, Some(".split.B"))];
+
+        let request = CodeGeneratorRequest {
+            file_to_generate: vec!["c.proto".to_owned()],
+            parameter: Some(format!(
+                "{parameter},extern_path=.split.B=::b_crate::split::B"
+            )),
+            proto_file: vec![a, b, c],
+            ..Default::default()
+        };
+        execute(&request.encode_to_vec())
+            .expect("code generation failed")
+            .into_iter()
+            .map(|file| {
+                (
+                    file.name.unwrap_or_default(),
+                    file.content.unwrap_or_default(),
+                )
+            })
+            .fold(HashMap::new(), |mut contents, (name, content)| {
+                contents
+                    .entry(name)
+                    .or_insert_with(String::new)
+                    .push_str(&content);
+                contents
+            })
+    }
+
+    #[test]
+    fn generate_files_only_skips_the_other_files_of_the_package() {
+        let split = &generate_split("generate_files_only,file_descriptor_set")["split/split.rs"];
+
+        assert!(split.contains("pub struct C "), "{split}");
+        assert!(
+            !split.contains("pub struct A ") && !split.contains("pub struct B "),
+            "the files not to generate should not be:\n{split}"
+        );
+        assert!(
+            split.contains("::b_crate::split::B"),
+            "the caller's extern_path should be kept:\n{split}"
+        );
+        assert!(
+            !split.contains("not_generated"),
+            "nothing should refer to the types of the files not to generate:\n{split}"
+        );
+        // The derives of the struct C, i.e. the last derive line before it.
+        let derives = |module: &str| {
+            module
+                .split("pub struct C ")
+                .next()
+                .and_then(|before| before.lines().rev().find(|line| line.contains("#[derive(")))
+                .unwrap_or_default()
+                .to_owned()
+        };
+        assert_eq!(
+            derives(split),
+            derives(&generate_split("file_descriptor_set")["split/split.rs"]),
+            "prost should derive the same traits on C as when it generates the whole package"
+        );
+
+        let bytes: Vec<u8> = split
+            .split("pub const FILE_DESCRIPTOR_SET: &[u8] = &[")
+            .nth(1)
+            .and_then(|rest| rest.split(']').next())
+            .expect("FILE_DESCRIPTOR_SET bytes")
+            .split(',')
+            .map(str::trim)
+            .filter(|byte| !byte.is_empty())
+            .map(|byte| u8::from_str_radix(byte.trim_start_matches("0x"), 16).unwrap())
+            .collect();
+        let set = prost_types::FileDescriptorSet::decode(bytes.as_slice()).unwrap();
+        assert_eq!(
+            set.file.iter().map(|file| file.name()).collect::<Vec<_>>(),
+            ["c.proto"],
+            "FILE_DESCRIPTOR_SET should hold the generated files only"
+        );
+    }
+
+    #[test]
+    fn without_generate_files_only_the_whole_package_is_generated() {
+        let split = &generate_split("file_descriptor_set")["split/split.rs"];
+
+        assert!(
+            split.contains("pub struct A ") && split.contains("pub struct C "),
+            "{split}"
+        );
     }
 }

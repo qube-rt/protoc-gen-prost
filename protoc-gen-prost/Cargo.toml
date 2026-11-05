@@ -1,6 +1,6 @@
 [package]
 name = "protoc-gen-prost"
-version = "0.5.0"
+version = "0.5.1-qube.1"
 authors = ["Marcus Griep <marcus@griep.us>", "Sienna Meridian Satterwhite <sienna@r3t.io>"]
 description = "Protocol Buffers compiler plugin powered by Prost!"
 repository = "https://github.com/neoeinstein/protoc-gen-prost"

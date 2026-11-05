@@ -4,6 +4,13 @@ This changelog is based on the format from [Keep a Changelog](https://keepachang
 
 ## [Unreleased]
 
+## [2026-11-05]
+
+Released from the [qube-rt fork], with the changes below, which upstream does not have.
+
+- `protoc-gen-prost` 0.5.1-qube.1
+- `protoc-gen-tonic` 0.5.1-qube.1
+
 ### Added
 
 - (prost) Added `prost_reflect=linked`, where each module embeds only its own file descriptors
@@ -18,6 +25,8 @@ This changelog is based on the format from [Keep a Changelog](https://keepachang
 - (tonic) Only the services of the files to generate are generated, not those of the files they
   import ([#143])
   - Thanks to @fivetran-auslacroix!
+
+[qube-rt fork]: https://github.com/qube-rt/protoc-gen-prost
 
 ## [2025-11-19]
 

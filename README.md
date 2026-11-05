@@ -1,5 +1,36 @@
 # protoc-gen-prost
 
+> [!NOTE]
+> This is [qube-rt]'s fork of [neoeinstein/protoc-gen-prost]. It exists only
+> because the original is dormant: its issues go unanswered and its pull
+> requests are ignored. This fork is actively maintained and used in
+> production. It carries fixes and features that the original lacks, listed in
+> the [CHANGELOG](CHANGELOG.md), each crediting its author.
+>
+> To use it in place of the original, install the plugins from this repository:
+>
+> ```shell
+> cargo install --locked \
+>   --git https://github.com/qube-rt/protoc-gen-prost --tag v0.5.1-qube.1 \
+>   protoc-gen-prost protoc-gen-tonic
+> ```
+>
+> Or, to depend on their libraries, point the dependencies at this repository
+> in `Cargo.toml`:
+>
+> ```toml
+> [dependencies]
+> protoc-gen-prost = { git = "https://github.com/qube-rt/protoc-gen-prost", tag = "v0.5.1-qube.1" }
+> protoc-gen-tonic = { git = "https://github.com/qube-rt/protoc-gen-prost", tag = "v0.5.1-qube.1" }
+> ```
+>
+> Its versions are pre-releases (`0.5.1-qube.1`), which a `[patch.crates-io]`
+> entry does not substitute for a plain `0.5` requirement: use git dependencies
+> as above.
+
+[qube-rt]: https://github.com/qube-rt
+[neoeinstein/protoc-gen-prost]: https://github.com/neoeinstein/protoc-gen-prost
+
 A `protoc` plugin that generates code using the _[Prost!]_ code generation engine.
 
 [Prost!]: https://github.com/tokio-rs/prost

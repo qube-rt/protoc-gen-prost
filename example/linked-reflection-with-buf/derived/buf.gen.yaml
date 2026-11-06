@@ -1,13 +1,9 @@
 version: v2
 plugins:
   - local: protoc-gen-prost
-    out: gen
+    out: derived/gen
     opt:
       - file_descriptor_set
       - prost_reflect=linked
       # example.derived imports example.base, which the base crate generates and registers.
       - extern_path=.example.base=::linked_reflection_base::example::base
-inputs:
-  - directory: ../proto
-    paths:
-      - example/derived

@@ -183,8 +183,8 @@ jobs:
       - name: Generate example
         run: |
           export PATH=$GITHUB_WORKSPACE/bin:$PATH
-          (cd base && buf generate -v --debug)
-          (cd derived && buf generate -v --debug)
+          buf generate -v --debug proto --template base/buf.gen.yaml --path proto/example/base
+          buf generate -v --debug proto --template derived/buf.gen.yaml --path proto/example/derived
         working-directory: example/linked-reflection-with-buf
       - name: Test example
         run: |

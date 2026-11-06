@@ -1,11 +1,7 @@
 version: v2
 plugins:
   - local: protoc-gen-prost
-    out: gen
+    out: base/gen
     opt:
       - file_descriptor_set
       - prost_reflect=linked
-inputs:
-  - directory: ../proto
-    paths:
-      - example/base

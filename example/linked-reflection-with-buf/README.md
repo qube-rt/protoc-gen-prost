@@ -27,8 +27,8 @@ too.
 | `proto/example/base/base.proto` | Messages of the base crate, a nested one, a well-known type and a field option |
 | `proto/example/options/options.proto` | An extension only, so no `extern_path` maps it: the base crate embeds it |
 | `proto/example/derived/derived.proto` | Messages of the derived crate, holding the base crate's |
-| `base/buf.gen.yaml` | Generates `example/base` into the base crate |
-| `derived/buf.gen.yaml` | Generates `example/derived`, with `extern_path=.example.base` pointing at the base crate |
+| `base/buf.gen.yaml` | Generates `proto/example/base` into the base crate |
+| `derived/buf.gen.yaml` | Generates `proto/example/derived`, with `extern_path=.example.base` pointing at the base crate |
 | `derived/src/lib.rs` | Tests: text format across the crates, option extensions, each file registered once |
 
 ## Generate and test
@@ -44,8 +44,8 @@ Then generate each crate and test the example:
 
 ```shell
 cd example/linked-reflection-with-buf
-(cd base && buf generate)
-(cd derived && buf generate)
+buf generate proto --template base/buf.gen.yaml --path proto/example/base
+buf generate proto --template derived/buf.gen.yaml --path proto/example/derived
 cargo test --locked
 ```
 

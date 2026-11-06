@@ -102,10 +102,11 @@ pub fn execute(raw_request: &[u8]) -> generator::Result {
         }
 
         for (full_name, nesting_depth) in &messages {
-            // file_descriptor_set_generator declares FILE_DESCRIPTOR_SET, and registration_generator
-            // `__descriptor_pool()`, in the package-level module. A message nested `nesting_depth`
-            // levels deep lives in that many `pub mod <parent>` wrappers below it, so the reference
-            // needs a matching number of `super::` segments -- an unqualified name only resolves
+            // file_descriptor_set_generator declares FILE_DESCRIPTOR_SET, and
+            // registration_generator `__descriptor_pool()`, in the package-level
+            // module. A message nested `nesting_depth` levels deep lives in that many
+            // `pub mod <parent>` wrappers below it, so the reference needs a matching
+            // number of `super::` segments -- an unqualified name only resolves
             // for top-level messages.
             let package_module = "super::".repeat(*nesting_depth);
             config
